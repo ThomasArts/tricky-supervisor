@@ -219,5 +219,27 @@ Or even as much as 5 million times!
 Wow, that's a surprise. We did hit a very rare error, after 5 million
 calls to gui:digits() the server crashed.
 
+## Rare errors
+
+But if the error is so rare, how then did it hit it twice in 5
+seconds? Actually, did the test take 5 seconds at all, probably not on
+your new machine.
+
+Still, the supervision tree should restart the crashing process and
+since it happens very seldomly, **why then would it actually crash the
+supervisor itself in order to kill the application?**
+
+The reason is: gui and clock depend on each other. In fact, the clock
+process is the one that crashes, but it takes the gui with it. This is
+due to the fact that the gui calls the clock. If the clock crashes,
+the gui crashes and that is together 2 crashes within 5 seconds.
+
+**I guess this is a common pitfall and you need to inspect your
+application for it.** Make sure that the children of the supervision
+tree are independent. Use code inspection or a QuickCheck model for
+doing so. 
+
+
+
 
 
