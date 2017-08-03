@@ -87,37 +87,137 @@ init([]) ->
 From this supervisor restart strategy, you may derive that if one of the processes crashes, it is automatically restarted, without restarting the other process.
 Moreover, you tolerate 1 failure per 5 seconds. Since 5 seconds is eternity in computer land, this means that the error actually is very unlikely to happen and that if it happens, just restarting may solve the majority of your problems.
 
-## The gui callback
 
-Just to be OTP compliant, the two processes clock and gui are defined as gen_servers. The gui process has an API call that can ask for the digits that the millisecond dial has shown so far. There are at most ten digits, thus the longer the clock runs, the more likely it is that all digits have been displayed. It's contrived...
-I leave out the default lines that are not important, the code is in this repo.
+## The clock and gui callback
+
+Just to be OTP compliant, the two processes clock and gui are defined
+as gen_servers. The clock has beside start and stop the API call
+clock:ms(), which should return the milliseconds of os:timestamp.
+
+After starting the application, this looks as follows:
+```erlang
+9> {os:timestamp(), clock:ms()}.
+{{1501,766116,703340},703358}
+10> {os:timestamp(), clock:ms()}.
+{{1501,766119,55250},55268}
+11> {os:timestamp(), clock:ms()}.
+{{1501,766122,487512},487529}
+```
+
+The first value in the above tuples is a direct call to
+os:timestamp(), the second call to clock:ms() returns only the
+milliseconds.
+
+The gui process has an API call that can ask for the digits that the
+millisecond dial has shown so far. There are at most ten digits, thus
+the longer the clock runs, the more likely it is that all digits have
+been displayed. **It's contrived...**
 
 ```erlang
--module(gui).
+15> application:start(app). 
+ok
+16> gui:digits().          
+[0]
+17> gui:digits().
+[0]
+18> gui:digits().
+[0,3]
+19> gui:digits().
+[0,3]
+20> gui:digits().
+[0,3,8]
+21> gui:digits().
+[0,3,6,8]
+22> gui:digits().
+[0,3,6,8]
+```
 
--behaviour(gen_server).
+It takes a bit of time before we hit all digits, due to rounding and
+timing. But if we call the function often enough (20 times or so), we
+get them all.
 
-%% API
--export([start_link/0, digits/0]).
+## Some super naive testing
 
--define(SERVER, ?MODULE).
+Although testing without QuickCheck is unrealistic, I present a kind
+of unit test here:
 
-start_link() ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+```erlang
+test(N) ->
+  ok = application:ensure_started(app),
+  timer:sleep(10),
+  repeat(N).
 
-digits() ->
-  gen_server:call(?SERVER, digits).
+repeat(0) -> 
+  gui:digits();
+repeat(N) ->
+  gui:digits(), 
+  repeat(N-1).
+  ```
 
-init([]) ->
-  {ok, []}.
+Just call gui:digits() a number of times.
+The result is a list with a subset of the digits.
+As said before, when call the API 20 times, we get them all, when we
+call it 6 times, we get a subset:
 
-handle_call(digits, _From, State) ->
-  LastDigit = clock:ms() rem 10,
-  NewState =  lists:umerge(State, [LastDigit]),
-  {reply, NewState, NewState}.
+```erlang
+49> application:stop(app).
+
+=INFO REPORT==== 3-Aug-2017::15:27:45 ===
+    application: app
+    exited: stopped
+    type: temporary
+ok
+50> test:test(20).        
+[0,1,2,3,4,5,6,8,9]
+51> application:stop(app).
+
+=INFO REPORT==== 3-Aug-2017::15:27:58 ===
+    application: app
+    exited: stopped
+    type: temporary
+ok
+52> test:test(6).        
+[3,5,6,8]
+```
+
+## Running many tests
+
+If we now run many tests, say calling the same gui:digits() 10,000
+times, or 100,000 times?
+
+```erlang
+54> test:test(10000).     
+[0,1,2,3,4,5,6,7,8,9]
+55> test:test(100000).
+[0,1,2,3,4,5,6,7,8,9]
+```
+
+Or even as much as 5 million times!
+
+```erlang
+56> test:test(5000000).
+
+=ERROR REPORT==== 3-Aug-2017::15:30:35 ===
+** Generic server clock terminating 
+** Last message in was time
+** When Server state == {state}
+** Reason for termination == 
+** {badarith,[{clock,handle_call,3,[{file,"clock.erl"},{line,35}]},
+              {gen_server,try_handle_call,4,
+                          [{file,"gen_server.erl"},{line,615}]},
+              {gen_server,handle_msg,5,[{file,"gen_server.erl"},{line,647}]},
+              {proc_lib,init_p_do_apply,3,
+                        [{file,"proc_lib.erl"},{line,247}]}]}
+                        ...
+=INFO REPORT==== 3-Aug-2017::15:30:35 ===
+    application: app
+    exited: shutdown
+    type: temporary
 
 ```
 
+Wow, that's a surprise. We did hit a very rare error, after 5 million
+calls to gui:digits() the server crashed.
 
 
 
